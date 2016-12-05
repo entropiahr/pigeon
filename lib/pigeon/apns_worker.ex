@@ -19,7 +19,8 @@ defmodule Pigeon.APNSWorker do
   end
 
   def start_link(config) do
-    GenServer.start_link(__MODULE__, {:ok, config}, name: config[:name])
+    name = String.to_atom(config[:name])
+    GenServer.start_link(__MODULE__, {:ok, config}, name: name)
   end
 
   def stop, do: :gen_server.cast(self, :stop)
@@ -28,10 +29,12 @@ defmodule Pigeon.APNSWorker do
 
   def initialize_worker(config) do
     mode = config[:mode]
+    dynamic = config[:dynamic]
+    config = Map.drop(config, [:dynamic])
     case connect_socket(config, 0) do
       {:ok, socket} ->
-        if config[:dynamic] do
-          timer:send_interval(@inactivity_period, :terminate_if_passed)
+        if dynamic do
+          :timer.send_interval(@inactivity_period, :terminate_if_passed)
         end
         Process.send_after(self, :ping, @ping_period)
         {:ok, %{
@@ -108,7 +111,7 @@ defmodule Pigeon.APNSWorker do
     case Kadabra.open(uri, :https, options) do
       {:ok, socket} -> {:ok, socket}
       {:error, reason} ->
-        Logger.error(inspect(reason))
+        Logger.error(reason)
         connect_socket(config, tries + 1)
     end
   end

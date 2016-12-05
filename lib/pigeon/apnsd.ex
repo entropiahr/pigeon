@@ -2,7 +2,6 @@ defmodule Pigeon.APNSD do
   require Logger
   import Supervisor.Spec
 
-  import Pigeon.APNS, only: [group_responses: 1]
   @default_timeout 5_000
 
   def push(notifications, opts)  when is_list(notifications) do
@@ -14,8 +13,8 @@ defmodule Pigeon.APNSD do
         tasks
         |> Task.yield_many(@default_timeout + 500)
         |> Enum.map(fn {task, response} -> response || Task.shutdown(task, :brutal_kill) end)
-        |> group_responses()
-      on_response -> push(worker_pid, notifications, on_response, opts)
+        |> Pigeon.Helpers.group_responses()
+      on_response -> push(worker_pid, notifications, on_response)
     end
   end
   def push(notification, opts) do
@@ -23,12 +22,12 @@ defmodule Pigeon.APNSD do
 
     case opts[:on_response] do
       nil -> do_sync_push(worker_pid, notification)
-      on_response -> push(worker_pid, notification, on_response, opts)
+      on_response -> push(worker_pid, notification, on_response)
     end
   end
 
   def push(worker_pid, notifications, on_response) when is_list(notifications) do
-    for n <- notifications, do: push(worker_pid, n, on_response, opts)
+    for n <- notifications, do: push(worker_pid, n, on_response)
   end
   def push(worker_pid, notification, on_response) do
     GenServer.cast(worker_pid, {:push, :apns, notification, on_response})
