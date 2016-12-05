@@ -144,7 +144,7 @@ defmodule Pigeon.APNSWorker do
     Kadabra.request(socket, req_headers, json)
     new_q = Map.put(queue, "#{stream_id}", {notification, on_response})
     new_stream_id = stream_id + 2
-    { :noreply, %{state | stream_id: new_stream_id, queue: new_q } }
+    { :noreply, %{state | stream_id: new_stream_id, queue: new_q, last_activity: DateTime.utc_now() } }
   end
 
   defp put_apns_id(headers, notification) do
