@@ -6,7 +6,7 @@ defmodule Pigeon.APNSWorker do
   require Logger
 
   @ping_period 600_000 # 10 minutes
-  @inctive_period 60_000 * 60 # 1 hour
+  @inactivity_period 60_000 * 60 # 1 hour
 
   defp apns_production_api_uri, do: "api.push.apple.com"
   defp apns_development_api_uri, do: "api.development.push.apple.com"
@@ -30,9 +30,8 @@ defmodule Pigeon.APNSWorker do
     mode = config[:mode]
     case connect_socket(config, 0) do
       {:ok, socket} ->
-        state =
         if config[:dynamic] do
-          time:send_interval(@inctive_period, :terminate_if_passed)
+          timer:send_interval(@inactivity_period, :terminate_if_passed)
         end
         Process.send_after(self, :ping, @ping_period)
         {:ok, %{
