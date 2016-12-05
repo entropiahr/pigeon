@@ -4,6 +4,8 @@ defmodule Pigeon.GCM do
   """
   require Logger
 
+  @default_timeout 5000
+
   # defp gcm_uri, do: 'https://gcm-http.googleapis.com/gcm/send'
   defp gcm_uri, do: 'fcm.googleapis.com/fcm/send'
 
@@ -26,6 +28,51 @@ defmodule Pigeon.GCM do
   @doc """
     Sends a push over GCM and executes function on success/failure.
   """
+  def push_sync(notifications, config) when is_list(notifications) do
+    formater =
+      case config[:formater] do
+        :nil -> &({:ok, &1})
+        formater -> formater
+      end
+
+    notifications
+    |> group_notifications()
+    |> Enum.map(&(Task.async(fn -> do_sync_push(&1, config, formater) end)))
+    |> Task.yield_many(@default_timeout + 500)
+    |> Enum.map(fn {task, response} -> response || Task.shutdown(task, :brutal_kill) end)
+    |> IO.inspect
+    |> Pigeon.Helpers.merge_grouped_responses()
+  end
+
+
+  def group_notifications(notifications) do
+    Enum.reduce(notifications, %{}, fn(notification, acc) ->
+      case acc[notification.payload] do
+        :nil ->
+          notif =
+            if is_binary(notification.registration_id) do
+              %{notification | registration_id: [ notification.registration_id] }
+            else
+              notification
+            end
+
+          acc
+          |> Map.put(notification.payload, notif)
+        acc_notification ->
+          notif =
+            if is_binary(notification.registration_id) do
+              %{acc_notification | registration_id: [ notification.registration_id | acc_notification.registration_id ] }
+            else
+              %{acc_notification | registration_id: notification.registration_id ++ acc_notification.registration_id}
+            end
+          acc
+          |> Map.put(notification.payload, notif)
+      end
+    end)
+    |> Map.values()
+  end
+
+
   @spec push(Pigeon.GCM.Notification, (() -> none)) :: none
   def push(notification, on_response) when is_function(on_response) do
     do_push(notification, %{gcm_key: default_gcm_key}, on_response)
@@ -34,6 +81,7 @@ defmodule Pigeon.GCM do
   def push(notification, config, on_response \\ nil) do
     do_push(notification, config, on_response)
   end
+
 
   defp do_push(notification, %{gcm_key: gcm_key}, on_response \\ nil) do
     requests =
@@ -58,6 +106,21 @@ defmodule Pigeon.GCM do
       end
     for r <- requests, do: Task.async(fn -> response.(r) end)
     :ok
+  end
+
+  defp do_sync_push(notification, %{gcm_key: gcm_key}, formater) do
+    notification.registration_id
+    |> chunk_registration_ids
+    |> encode_requests(notification.payload)
+    |> Enum.map(fn({reg_ids, payload}) ->
+      {:ok, %HTTPoison.Response{status_code: status, body: body}} =
+        HTTPoison.post(gcm_uri, payload, gcm_headers(gcm_key))
+
+      notification = %{ notification | registration_id: reg_ids }
+      process_response(status, body, notification, formater)
+    end)
+    |> Enum.concat()
+    |> Pigeon.Helpers.group_responses()
   end
 
   def chunk_registration_ids(reg_ids) when is_binary(reg_ids), do: [[reg_ids]]

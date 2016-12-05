@@ -71,8 +71,7 @@ defmodule Pigeon.GCM.Notification do
   """
   defstruct registration_id: nil, payload: %{}, message_id: nil, updated_registration_id: nil
 
-  def new(registration_ids, notification \\ %{}, data \\ %{})
-  def new(registration_ids, notification, data) do
+  def new(registration_ids, notification \\ %{}, data \\ %{}) do
     %Pigeon.GCM.Notification{registration_id: registration_ids}
     |> put_notification(notification)
     |> put_data(data)
