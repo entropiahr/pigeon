@@ -18,7 +18,7 @@ defmodule Pigeon.APNS do
         tasks
         |> Task.yield_many(@default_timeout + 500)
         |> Enum.map(fn {task, response} -> response || Task.shutdown(task, :brutal_kill) end)
-        |> group_responses
+        |> Pigeon.Helpers.group_responses()
       on_response -> push(notification, on_response, opts)
     end
   end
@@ -41,34 +41,6 @@ defmodule Pigeon.APNS do
     after
       @default_timeout -> {:error, :timeout, notification}
     end
-  end
-
-  defp group_responses(responses) do
-    Enum.reduce(responses, %{}, fn(response, acc) ->
-      case response do
-        {:ok, r} -> update_result(acc, r)
-        _ -> acc
-      end
-    end)
-  end
-
-  defp update_result(acc, response) do
-    case response do
-      {:ok, notif} -> add_ok_notif(acc, notif)
-      {:error, reason, notif} -> add_error_notif(acc, reason, notif)
-    end
-  end
-
-  defp add_ok_notif(acc, notif) do
-    oks = acc[:ok] || []
-    Map.put(acc, :ok, oks ++ [notif])
-  end
-
-  defp add_error_notif(acc, reason, notif) do
-    errors = acc[:error] || %{}
-    similar = errors[reason] || []
-    errors = Map.put(errors, reason, similar ++ [notif])
-    Map.put(acc, :error, errors)
   end
 
   @doc """

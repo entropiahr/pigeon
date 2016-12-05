@@ -6,6 +6,7 @@ defmodule Pigeon.APNSWorker do
   require Logger
 
   @ping_period 600_000 # 10 minutes
+  @inactivity_period 60_000 * 60 # 1 hour
 
   defp apns_production_api_uri, do: "api.push.apple.com"
   defp apns_development_api_uri, do: "api.development.push.apple.com"
@@ -18,7 +19,8 @@ defmodule Pigeon.APNSWorker do
   end
 
   def start_link(config) do
-    GenServer.start_link(__MODULE__, {:ok, config}, name: config[:name])
+    name = String.to_atom(config[:name])
+    GenServer.start_link(__MODULE__, {:ok, config}, name: name)
   end
 
   def stop, do: :gen_server.cast(self, :stop)
@@ -27,15 +29,21 @@ defmodule Pigeon.APNSWorker do
 
   def initialize_worker(config) do
     mode = config[:mode]
+    dynamic = config[:dynamic]
+    config = Map.drop(config, [:dynamic])
     case connect_socket(config, 0) do
       {:ok, socket} ->
+        if dynamic do
+          :timer.send_interval(@inactivity_period, :terminate_if_passed)
+        end
         Process.send_after(self, :ping, @ping_period)
         {:ok, %{
           apns_socket: socket,
           mode: mode,
           config: config,
           stream_id: 1,
-          queue: %{}
+          queue: %{},
+          last_activity: DateTime.utc_now()
         }}
       {:closed, _socket} ->
         Logger.error """
@@ -103,7 +111,7 @@ defmodule Pigeon.APNSWorker do
     case Kadabra.open(uri, :https, options) do
       {:ok, socket} -> {:ok, socket}
       {:error, reason} ->
-        Logger.error(inspect(reason))
+        Logger.error(reason)
         connect_socket(config, tries + 1)
     end
   end
@@ -216,7 +224,7 @@ defmodule Pigeon.APNSWorker do
       :missing_provider_token ->
         """
         No provider certificate was used to connect to APNs and Authorization header was missing
-        or no provider token was specified." 
+        or no provider token was specified."
         """
 
       # 404
@@ -255,6 +263,19 @@ defmodule Pigeon.APNSWorker do
         "The SSL connection timed out."
       _ ->
         ""
+    end
+  end
+
+  def handle_info(:terminate_if_passed, state) do
+    current_time = DateTime.utc_now() |> DateTime.to_unix
+    last_activity = state.last_activity |> DateTime.to_unix
+
+    if current_time - last_activity > (@inactivity_period/1000 - 1) do
+      Logger.debug("Exiting because of inactivity")
+      Kadabra.close(state.apns_socket)
+      {:stop, :normal, state}
+    else
+      {:noreply, state}
     end
   end
 
