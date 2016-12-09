@@ -29,6 +29,7 @@ defmodule Pigeon.APNSWorker do
 
   def initialize_worker(config) do
     mode = config[:mode]
+    Logger.info "Starting APNS worker in mode: #{inspect mode}"
     dynamic = config[:dynamic]
     config = Map.drop(config, [:dynamic])
     case connect_socket(config, 0) do
@@ -66,6 +67,7 @@ defmodule Pigeon.APNSWorker do
   def connect_socket(_config, 3), do: {:error, :timeout}
   def connect_socket(config, tries) do
     uri = config[:mode] |> push_uri |> to_char_list
+    Logger.info "Connecting to socket with uri: #{uri}"
     case connect_socket_options(config) do
       {:ok, options} -> do_connect_socket(config, uri, options, tries)
       error -> error
