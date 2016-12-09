@@ -56,7 +56,7 @@ defmodule Pigeon.APNSD do
 
     config =
       %{name: cert_hash,
-        mode: Application.get_env(:apnsd, :env, :dev),
+        mode: Application.get_env(:pigeon, :env, :dev),
         key: {:PrivateKeyInfo, key_der},
         keyfile: :nil,
         cert: cert_der,
