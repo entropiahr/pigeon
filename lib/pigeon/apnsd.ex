@@ -57,7 +57,7 @@ defmodule Pigeon.APNSD do
     worker_name =
       :crypto.hash(:sha, cert)
       |> Base.encode16()
-      |> Kernel.<> mode
+      |> Kernel.<> to_string(mode)
 
     worker_name
     |> String.to_atom()
