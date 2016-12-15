@@ -5,24 +5,28 @@ defmodule Pigeon.APNSD do
   @default_timeout 5_000
 
   def push(notifications, opts)  when is_list(notifications) do
-    worker_pid = ensure_worker(opts[:cert])
-
-    case opts[:on_response] do
-      nil ->
-        tasks = for n <- notifications, do: Task.async(fn -> do_sync_push(worker_pid, n) end)
-        tasks
-        |> Task.yield_many(@default_timeout + 500)
-        |> Enum.map(fn {task, response} -> response || Task.shutdown(task, :brutal_kill) end)
-        |> Pigeon.Helpers.group_responses()
-      on_response -> push(worker_pid, notifications, on_response)
+    if worker_pid = ensure_worker(opts) do
+      case opts[:on_response] do
+        nil ->
+          tasks = for n <- notifications, do: Task.async(fn -> do_sync_push(worker_pid, n) end)
+          tasks
+          |> Task.yield_many(@default_timeout + 500)
+          |> Enum.map(fn {task, response} -> response || Task.shutdown(task, :brutal_kill) end)
+          |> Pigeon.Helpers.group_responses()
+        on_response -> push(worker_pid, notifications, on_response)
+      end
+    else
+      %{error: %{missing_certificate: notifications}}
     end
   end
   def push(notification, opts) do
-    worker_pid = ensure_worker(opts[:cert])
-
-    case opts[:on_response] do
-      nil -> do_sync_push(worker_pid, notification)
-      on_response -> push(worker_pid, notification, on_response)
+    if worker_pid = ensure_worker(opts[:cert]) do
+      case opts[:on_response] do
+        nil -> do_sync_push(worker_pid, notification)
+        on_response -> push(worker_pid, notification, on_response)
+      end
+    else
+      %{error: %{missing_certificate: notification}}
     end
   end
 
@@ -45,7 +49,7 @@ defmodule Pigeon.APNSD do
     end
   end
 
-  def ensure_worker(full_cert) do
+  def ensure_worker(opts = %{cert: cert}) do
     cert_hash =
       :crypto.hash(:sha, full_cert)
       |> Base.encode16()
@@ -54,9 +58,11 @@ defmodule Pigeon.APNSD do
      {:PrivateKeyInfo, key_der, _}
     ] = :public_key.pem_decode(full_cert)
 
+    mode = opts[:mode] || Application.get_env(:pigeon, :env, :dev)
+
     config =
       %{name: cert_hash,
-        mode: Application.get_env(:pigeon, :env, :dev),
+        mode: mode,
         key: {:PrivateKeyInfo, key_der},
         keyfile: :nil,
         cert: cert_der,
@@ -73,6 +79,8 @@ defmodule Pigeon.APNSD do
         pid
     end
   end
+
+  def ensure_worker(_opts), do: :nil
 end
 
 defmodule Pigeon.APNSD.Supervisor do
