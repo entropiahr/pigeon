@@ -59,14 +59,17 @@ defmodule Pigeon.APNSD do
       |> Base.encode16()
       |> Kernel.<> mode
 
-    case worker_name |> String.to_atom() |> GenServer.whereis() do
+    worker_name
+    |> String.to_atom()
+    |> GenServer.whereis()
+    case do
       :nil ->
         case :public_key.pem_decode(cert) do
           [{:Certificate, cert_der, _},
            {:PrivateKeyInfo, key_der, _}
           ] ->
             config =
-              %{name: cert_hash,
+              %{name: worker_name,
                 mode: mode,
                 key: {:PrivateKeyInfo, key_der},
                 keyfile: :nil,
