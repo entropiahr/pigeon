@@ -57,12 +57,12 @@ defmodule Pigeon.APNSD do
     worker_name =
       :crypto.hash(:sha, cert)
       |> Base.encode16()
-      |> Kernel.<> to_string(mode)
+      |> Kernel.<>(to_string(mode))
 
     worker_name
     |> String.to_atom()
     |> GenServer.whereis()
-    case do
+    |> case do
       :nil ->
         case :public_key.pem_decode(cert) do
           [{:Certificate, cert_der, _},
