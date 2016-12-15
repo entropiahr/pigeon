@@ -5,20 +5,22 @@ defmodule Pigeon.APNSD do
   @default_timeout 5_000
 
   def push(notifications, opts)  when is_list(notifications) do
-    if worker_pid = ensure_worker(opts) do
-      case opts[:on_response] do
-        nil ->
-          tasks = for n <- notifications, do: Task.async(fn -> do_sync_push(worker_pid, n) end)
-          tasks
-          |> Task.yield_many(@default_timeout + 500)
-          |> Enum.map(fn {task, response} -> response || Task.shutdown(task, :brutal_kill) end)
-          |> Pigeon.Helpers.group_responses()
-        on_response -> push(worker_pid, notifications, on_response)
-      end
-    else
-      %{error: %{missing_certificate: notifications}}
+    case ensure_worker(opts) do
+      {:ok, worker_pid} ->
+        case opts[:on_response] do
+          nil ->
+            tasks = for n <- notifications, do: Task.async(fn -> do_sync_push(worker_pid, n) end)
+            tasks
+            |> Task.yield_many(@default_timeout + 500)
+            |> Enum.map(fn {task, response} -> response || Task.shutdown(task, :brutal_kill) end)
+            |> Pigeon.Helpers.group_responses()
+          on_response -> push(worker_pid, notifications, on_response)
+        end
+      {:error, error} ->
+        %{error: %{error => notifications}}
     end
   end
+
   def push(notification, opts) do
     if worker_pid = ensure_worker(opts[:cert]) do
       case opts[:on_response] do
@@ -50,37 +52,40 @@ defmodule Pigeon.APNSD do
   end
 
   def ensure_worker(opts = %{cert: cert}) do
-    cert_hash =
-      :crypto.hash(:sha, full_cert)
-      |> Base.encode16()
-
-    [{:Certificate, cert_der, _},
-     {:PrivateKeyInfo, key_der, _}
-    ] = :public_key.pem_decode(full_cert)
-
     mode = opts[:mode] || Application.get_env(:pigeon, :env, :dev)
 
-    config =
-      %{name: cert_hash,
-        mode: mode,
-        key: {:PrivateKeyInfo, key_der},
-        keyfile: :nil,
-        cert: cert_der,
-        certfile: :nil,
-        dynamic: true
-      }
+    worker_name =
+      :crypto.hash(:sha, cert)
+      |> Base.encode16()
+      |> Kernel.<> to_string(mode)
 
-    case cert_hash |> String.to_atom() |> GenServer.whereis() do
+    worker_name
+    |> String.to_atom()
+    |> GenServer.whereis()
+    case do
       :nil ->
-        {:ok, pid} =
-          Supervisor.start_child(Pigeon.APNSD.Supervisor, [config])
-        pid
+        case :public_key.pem_decode(cert) do
+          [{:Certificate, cert_der, _},
+           {:PrivateKeyInfo, key_der, _}
+          ] ->
+            config =
+              %{name: worker_name,
+                mode: mode,
+                key: {:PrivateKeyInfo, key_der},
+                keyfile: :nil,
+                cert: cert_der,
+                certfile: :nil,
+                dynamic: true
+              }
+
+            Supervisor.start_child(Pigeon.APNSD.Supervisor, [config])
+          _ -> {:error, :invalid_certificate}
       pid ->
-        pid
+        {:ok, pid}
     end
   end
 
-  def ensure_worker(_opts), do: :nil
+  def ensure_worker(_opts), do: {:error, :missing_certificate}
 end
 
 defmodule Pigeon.APNSD.Supervisor do
