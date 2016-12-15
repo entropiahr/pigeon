@@ -80,6 +80,7 @@ defmodule Pigeon.APNSD do
 
             Supervisor.start_child(Pigeon.APNSD.Supervisor, [config])
           _ -> {:error, :invalid_certificate}
+        end
       pid ->
         {:ok, pid}
     end
